@@ -6,6 +6,7 @@
 
 #include <sys/mman.h>
 
+#define RECLAIM_CAPACITY            (64)
 #define NR_STACKS(start, end, size) ((end - start) / size)
 #define NR_WORDS(nr_stacks)         ((nr_stacks + 63) / 64)
 
@@ -86,9 +87,8 @@ void *sa_alloc_user_stack(void) {
         return s;
     }
 
-    const unsigned int capacity = 64;
-    uint64_t stacks[capacity];
-    struct ioctl_reclaim_dead_params p = {.bases = (uintptr_t)stacks, .cap = capacity};
+    uint64_t stacks[RECLAIM_CAPACITY];
+    struct ioctl_reclaim_dead_params p = {.bases = (uintptr_t)stacks, .cap = RECLAIM_CAPACITY};
     if (!ioctl(shadow_fd, IOCTL_SHADOW_RECLAIM_DEAD, &p) && p.error == 0) {
         for (unsigned i = 0; i < p.count; ++i) {
             sa_release_user_stack((void *)stacks[i]);
@@ -120,7 +120,7 @@ long sa_init(unsigned long start, unsigned long end, unsigned long size) {
         return -errno;
     }
 
-    size_t words = ((end - start) / size + 63) / 64;
+    size_t words = (((end - start) / size) + 63) / 64;
     void *bits = mmap(NULL, words * sizeof(uint64_t), PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (bits == MAP_FAILED) {

@@ -16,9 +16,10 @@
 
 #include <asm/prctl.h>
 
-#define STACK_START (0x100000000000UL)
-#define STACK_END   (0x200000000000UL)
-#define STACK_SIZE  (8UL * 1024 * 1024)
+#define STACK_CAPACITY (64)
+#define STACK_START    (0x100000000000UL)
+#define STACK_END      (0x200000000000UL)
+#define STACK_SIZE     (8UL * 1024 * 1024)
 
 struct trampoline_args {
     void *(*fn)(void *);
@@ -194,7 +195,7 @@ pid_t fork(void) {
             _exit(127);
         }
 
-        sa_reset_after_fork();
+        sa_reset_after_fork((void *)req.stack_base);
         char done = '1';
         (void)!write(sy_pipe[1], &done, 1);
         close(sy_pipe[1]);

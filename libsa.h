@@ -11,10 +11,12 @@
     _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_ALLOC_NO, struct ioctl_alloc_params)
 #define IOCTL_SHADOW_FORK _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_FORK_NO, struct ioctl_fork_params)
 #define IOCTL_SHADOW_FREE _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_FREE_NO, struct ioctl_free_params)
+#define IOCTL_SHADOW_MARK_DETACHED                                                                 \
+    _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_MARK_DETACHED_NO, struct ioctl_mark_detached)
 #define IOCTL_SHADOW_PIVOT                                                                         \
     _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_PIVOT_NO, struct ioctl_pivot_params)
 #define IOCTL_SHADOW_PREPARE                                                                       \
-    _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_PREAPARE_NO, struct ioctl_prepare_params)
+    _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_PREPARE_NO, struct ioctl_prepare_params)
 #define IOCTL_SHADOW_RECLAIM                                                                       \
     _IOWR(IOCTL_SHADOW_MAGIC, IOCTL_SHADOW_RECLAIM_NO, struct ioctl_reclaim_params)
 #define IOCTL_SHADOW_RECLAIM_DEAD                                                                  \
@@ -26,12 +28,17 @@ enum {
     IOCTL_SHADOW_ALLOC_NO = 0x70,
     IOCTL_SHADOW_FORK_NO,
     IOCTL_SHADOW_FREE_NO,
+    IOCTL_SHADOW_MARK_DETACHED_NO,
     IOCTL_SHADOW_PIVOT_NO,
     IOCTL_SHADOW_PREPARE_NO,
     IOCTL_SHADOW_RECLAIM_NO,
     IOCTL_SHADOW_RECLAIM_DEAD_NO,
     IOCTL_SHADOW_UNPREPARE_NO,
     IOCTL_SHADOW_MAX_NR
+};
+
+struct ioctl_empty {
+    long error;
 };
 
 struct ioctl_alloc_params {
@@ -41,12 +48,7 @@ struct ioctl_alloc_params {
 
 struct ioctl_fork_params {
     long error;
-    int p_tgid;
-    int p_pid;
-};
-
-struct ioctl_free_params {
-    long error;
+    unsigned long stack_base;
 };
 
 struct ioctl_pivot_params {
