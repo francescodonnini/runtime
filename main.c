@@ -39,7 +39,7 @@ static real_pthread_detach_t real_pthread_detach;
 static real_fork_t real_fork;
 static real_pthread_join_t real_pthread_join;
 
-static int shadow_fd = -1;
+int shadow_fd = -1;
 
 static __attribute__((constructor)) void main_thread_init(void) {
     if (sa_init(STACK_START, STACK_END, STACK_SIZE)) {

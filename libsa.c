@@ -26,7 +26,7 @@ long sa_alloc_shadow_stack(void *stack_base) {
     long err = ioctl(shadow_fd, IOCTL_SHADOW_PREPARE, &req);
     if (err < 0) {
         perror("ioctl");
-        return err;
+        return -errno;
     }
 
     return req.error;
@@ -101,7 +101,7 @@ void *sa_alloc_user_stack(void) {
 
 long sa_claim(unsigned long stack_base) {
     struct ioctl_alloc_params req = {.stack_base = stack_base};
-    if (!ioctl(shadow_fd, IOCTL_SHADOW_ALLOC, &req)) {
+    if (ioctl(shadow_fd, IOCTL_SHADOW_ALLOC, &req)) {
         perror("ioctl");
     }
 
@@ -137,18 +137,17 @@ long sa_init(unsigned long start, unsigned long end, unsigned long size) {
 
 long sa_free_kernel_stack(void *stack_base) {
     struct ioctl_alloc_params req = {.stack_base = (unsigned long)stack_base};
-    long err = ioctl(shadow_fd, IOCTL_SHADOW_FREE, &req);
+    long err = ioctl(shadow_fd, IOCTL_SHADOW_UNPREPARE, &req);
     if (err) {
         perror("ioctl");
-        return err;
+        return -errno;
     }
 
     return req.error;
 }
 
-long sa_free_user_stack(void *stack_base) {
+void sa_free_user_stack(void *stack_base) {
     freelist_push(stack_base);
-    return errno;
 }
 
 long sa_reclaim(void *stack_base) {
@@ -156,7 +155,7 @@ long sa_reclaim(void *stack_base) {
     long err = ioctl(shadow_fd, IOCTL_SHADOW_RECLAIM, &req);
     if (err) {
         perror("ioctl");
-        return err;
+        return -errno;
     }
 
     return req.error;
