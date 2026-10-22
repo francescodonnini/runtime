@@ -1,9 +1,7 @@
 #ifndef SS_RUNTIME_H
 #define SS_RUNTIME_H
-#include "ioctl.h"
-
 #include <fcntl.h>
-#include <stdint.h>
+#include <stdbool.h>
 
 #include <sys/ioctl.h>
 
@@ -11,7 +9,7 @@ void *freelist_pop(void);
 
 void freelist_push(void *stack);
 
-long sa_alloc_shadow_stack(void *stack_base);
+long sa_alloc_shadow_stack(void *stack_base, bool detached);
 
 void *sa_alloc_user_stack(void);
 
@@ -26,6 +24,8 @@ void sa_free_user_stack(void *stack_base);
 long sa_mark_detached(void *stack_base);
 
 long sa_reclaim(void *stack_base);
+
+void sa_release_user_stack(void *stack);
 
 void sa_reset_after_fork(void *current_stack);
 #endif

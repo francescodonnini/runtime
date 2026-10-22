@@ -1,3 +1,4 @@
+#include "ioctl.h"
 #include "libsa.h"
 
 #include <dlfcn.h>
@@ -16,10 +17,9 @@
 
 #include <asm/prctl.h>
 
-#define STACK_CAPACITY (64)
-#define STACK_START    (0x100000000000UL)
-#define STACK_END      (0x200000000000UL)
-#define STACK_SIZE     (8UL * 1024 * 1024)
+#define STACK_START (0x100000000000UL)
+#define STACK_END   (0x200000000000UL)
+#define STACK_SIZE  (8UL * 1024 * 1024)
 
 struct trampoline_args {
     void *(*fn)(void *);
@@ -124,10 +124,11 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *user_attr,
         goto attr_destroy;
     }
 
-    void *prev_stack;
+    void *prev_stack = NULL;
     size_t prev_size;
-    if (!pthread_attr_getstack(&attr, &prev_stack, &prev_size)) {
-        printf("WARNING: user has already set an existing stack %p:%lu", prev_stack, prev_size);
+    if (!pthread_attr_getstack(&attr, &prev_stack, &prev_size) && prev_stack) {
+        fprintf(stderr, "WARNING: user has already set an existing stack %p:%lu\n", prev_stack,
+                prev_size);
     }
 
     if (pthread_attr_setstack(&attr, stack_base, STACK_SIZE)) {
@@ -135,7 +136,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *user_attr,
         goto stack_destroy;
     }
 
-    err = (int)sa_alloc_shadow_stack(stack_base);
+    err = (int)sa_alloc_shadow_stack(stack_base, detach_state == PTHREAD_CREATE_DETACHED);
     if (err) {
         goto stack_destroy;
     }
@@ -148,6 +149,10 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *user_attr,
 
     err = real_pthread_create(thread, &attr, thread_trampoline, targs);
     if (!err) {
+        if (!user_attr) {
+            pthread_attr_destroy(&attr);
+        }
+
         return 0;
     }
 
@@ -168,8 +173,7 @@ static void reclaim_after_join(void *stack_base) {
         return;
     }
 
-    madvise(stack_base, STACK_SIZE, MADV_DONTNEED);
-    freelist_push(stack_base);
+    sa_release_user_stack(stack_base);
 }
 
 int pthread_join(pthread_t t, void **retval) {

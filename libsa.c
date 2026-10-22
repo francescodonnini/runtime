@@ -1,28 +1,28 @@
 #include "libsa.h"
 
+#include "ioctl.h"
+
 #include <errno.h>
 #include <stdatomic.h>
 #include <stdio.h>
 
 #include <sys/mman.h>
 
-#define RECLAIM_CAPACITY            (64)
-#define NR_STACKS(start, end, size) ((end - start) / size)
-#define NR_WORDS(nr_stacks)         ((nr_stacks + 63) / 64)
+#define RECLAIM_CAPACITY (64)
 
 static uint64_t stack_start;
 static uint64_t stack_end;
 static uint64_t stack_size;
 
 static _Atomic uint64_t *free_bits;
-static _Atomic int64_t last_word;
 
 extern int shadow_fd;
 
 static atomic_ulong next;
 
-long sa_alloc_shadow_stack(void *stack_base) {
-    struct ioctl_alloc_params req = {.stack_base = (unsigned long)stack_base};
+long inline sa_alloc_shadow_stack(void *stack_base, bool detached) {
+    struct ioctl_prepare_params req = {.stack_base = (unsigned long)stack_base,
+                                       .detached = detached};
     long err = ioctl(shadow_fd, IOCTL_SHADOW_PREPARE, &req);
     if (err < 0) {
         perror("ioctl");
@@ -76,7 +76,7 @@ static inline void *bump_alloc(void) {
     return (void *)base;
 }
 
-static void sa_release_user_stack(void *stack) {
+void sa_release_user_stack(void *stack) {
     madvise(stack, stack_size, MADV_DONTNEED);
     freelist_push(stack);
 }
