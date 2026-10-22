@@ -1,5 +1,5 @@
 .equ STACK_SIZE,         0x800000
-.equ ADR_HINT,           0x200000000000
+.equ ADR_HINT,           0x100000000000
 .equ IOCTL_SHADOW_PIVOT, 0xc018ca73
 .equ __NR_OPEN,          2
 .equ __NR_CLOSE,         3

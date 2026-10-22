@@ -16,6 +16,10 @@
 
 #include <asm/prctl.h>
 
+#define STACK_START (0x100000000000UL)
+#define STACK_END   (0x200000000000UL)
+#define STACK_SIZE  (8UL * 1024 * 1024)
+
 struct trampoline_args {
     void *(*fn)(void *);
     void *fn_arg;
@@ -26,29 +30,18 @@ struct trampoline_args {
 typedef pid_t (*real_fork_t)(void);
 typedef int (*real_pthread_create_t)(pthread_t *, const pthread_attr_t *, void *(*)(void *),
                                      void *);
+typedef int (*real_pthread_detach_t)(pthread_t);
+typedef int (*real_pthread_join_t)(pthread_t, void **);
 
-static real_fork_t real_fork;
 static real_pthread_create_t real_pthread_create;
+static real_pthread_detach_t real_pthread_detach;
+static real_fork_t real_fork;
+static real_pthread_join_t real_pthread_join;
 
-static pthread_key_t cleanup_key;
-static pthread_once_t key_once = PTHREAD_ONCE_INIT;
 static int shadow_fd = -1;
 
-static void thread_cleanup(void *stack_base) {
-    if (!stack_base) {
-        return;
-    }
-
-    sa_free_kernel_stack(stack_base);
-    sa_free_user_stack(stack_base, STACK_SIZE);
-}
-
-static inline void make_cleanup_key(void) {
-    pthread_key_create(&cleanup_key, thread_cleanup);
-}
-
 static __attribute__((constructor)) void main_thread_init(void) {
-    if (sa_init(STACK_START + STACK_SIZE, STACK_END)) {
+    if (sa_init(STACK_START, STACK_END, STACK_SIZE)) {
         exit(EXIT_FAILURE);
     }
 
@@ -62,73 +55,125 @@ static __attribute__((constructor)) void main_thread_init(void) {
     memcpy((void *)&real_fork, (void *)&sym, sizeof(sym));
     sym = dlsym(RTLD_NEXT, "pthread_create");
     memcpy((void *)&real_pthread_create, (void *)&sym, sizeof(sym));
-    pthread_once(&key_once, make_cleanup_key);
+    sym = dlsym(RTLD_NEXT, "pthread_detach");
+    memcpy((void *)&real_pthread_detach, (void *)&sym, sizeof(sym));
+    sym = dlsym(RTLD_NEXT, "pthread_join");
+    memcpy((void *)&real_pthread_join, (void *)&sym, sizeof(sym));
     // lo stack viene spostato tramite una procedura assembly per il momento
     // quindi serve un modo per risalire all'indirizzo
 }
 
-static void *thread_trampoline(void *arg) {
-    struct trampoline_args t = *(struct trampoline_args *)arg;
-    free(arg);
+static void *thread_trampoline(void *argp) {
+    struct trampoline_args t;
+    memcpy(&t, argp, sizeof(t));
 
-    sa_alloc(t.stack_base);
-    void *ret = t.fn(t.fn_arg);
-    sa_free_kernel_stack(t.stack_base);
-    return ret;
+    long err = sa_claim((unsigned long)t.stack_base);
+    if (err) {
+        fprintf(stderr, "shadowstack: claim failed %ld\n", err);
+        abort();
+    }
+
+    return t.fn(t.fn_arg);
+}
+
+static inline void *stack_of(pthread_t t) {
+    pthread_attr_t attr;
+    if (pthread_getattr_np(t, &attr) != 0) {
+        return NULL;
+    }
+
+    void *base;
+    size_t size;
+    pthread_attr_getstack(&attr, &base, &size);
+    pthread_attr_destroy(&attr);
+    if ((uintptr_t)base < STACK_START || (uintptr_t)base >= STACK_END) {
+        return NULL;
+    }
+
+    return base;
+}
+
+int pthread_detach(pthread_t t) {
+    void *base = stack_of(t);
+    int err = real_pthread_detach(t);
+    if (!err && base) {
+        sa_mark_detached(base);
+    }
+
+    return err;
 }
 
 int pthread_create(pthread_t *thread, const pthread_attr_t *user_attr,
                    void *(*start_routine)(void *), void *arg) {
-    pthread_once(&key_once, make_cleanup_key);
-
     pthread_attr_t attr;
+    int detach_state = PTHREAD_CREATE_JOINABLE;
     if (user_attr) {
-        attr = *user_attr;
+        pthread_attr_getdetachstate(user_attr, &detach_state);
+        memcpy(&attr, user_attr, sizeof(attr));
     } else {
         pthread_attr_init(&attr);
     }
 
-    void *stack_base = sa_alloc_stack();
+    int err = 0;
+    void *stack_base = sa_alloc_user_stack();
     if (!stack_base) {
-        if (!user_attr) {
-            pthread_attr_destroy(&attr);
-        }
-
-        return EAGAIN;
+        err = EAGAIN;
+        goto attr_destroy;
     }
 
-    if (pthread_attr_setstack(&attr, stack_base, STACK_SIZE) != 0) {
-        sa_free_user_stack(stack_base, STACK_SIZE);
-        if (!user_attr) {
-            pthread_attr_destroy(&attr);
-        }
-
-        return EINVAL;
+    void *prev_stack;
+    size_t prev_size;
+    if (!pthread_attr_getstack(&attr, &prev_stack, &prev_size)) {
+        printf("WARNING: user has already set an existing stack %p:%lu", prev_stack, prev_size);
     }
 
-    struct trampoline_args *targs = malloc(sizeof(*targs));
-    if (!targs) {
-        sa_free_user_stack(stack_base, STACK_SIZE);
-        if (!user_attr) {
-            pthread_attr_destroy(&attr);
-        }
-
-        return ENOMEM;
+    if (pthread_attr_setstack(&attr, stack_base, STACK_SIZE)) {
+        err = EINVAL;
+        goto stack_destroy;
     }
 
+    err = (int)sa_alloc_shadow_stack(stack_base);
+    if (err) {
+        goto stack_destroy;
+    }
+
+    struct trampoline_args *targs = stack_base;
     targs->fn = start_routine;
     targs->fn_arg = arg;
     targs->stack_base = stack_base;
     targs->stack_size = STACK_SIZE;
 
-    int err = real_pthread_create(thread, &attr, thread_trampoline, targs);
+    err = real_pthread_create(thread, &attr, thread_trampoline, targs);
+    if (!err) {
+        return 0;
+    }
+
+    sa_free_kernel_stack(stack_base);
+stack_destroy:
+    sa_free_user_stack(stack_base);
+attr_destroy:
     if (!user_attr) {
         pthread_attr_destroy(&attr);
     }
 
-    if (err != 0) {
-        free(targs);
-        munmap(stack_base, STACK_SIZE);
+    return err;
+}
+
+static void reclaim_after_join(void *stack_base) {
+    long err = sa_reclaim(stack_base);
+    if (err) {
+        return;
+    }
+
+    madvise(stack_base, STACK_SIZE, MADV_DONTNEED);
+    freelist_push(stack_base);
+}
+
+int pthread_join(pthread_t t, void **retval) {
+    void *base = stack_of(t);
+    int err = real_pthread_join(t, retval);
+    if (!err && base) {
+        reclaim_after_join(base);
     }
 
     return err;
@@ -140,35 +185,24 @@ pid_t fork(void) {
         return -1;
     }
 
-    pid_t p_tgid = getpid();
-    pid_t p_pid = (pid_t)syscall(SYS_gettid);
     pid_t pid = real_fork();
     if (!pid) {
         close(sy_pipe[0]);
 
-        struct ioctl_fork_params req = {
-            .error = 0,
-            .p_pid = p_pid,
-            .p_tgid = p_tgid,
-        };
-
-        if (shadow_fd >= 0) {
-            close(shadow_fd);
+        struct ioctl_fork_params req = {0};
+        if (ioctl(shadow_fd, IOCTL_SHADOW_FORK, &req) < 0 || req.error) {
+            _exit(127);
         }
 
-        shadow_fd = open("/dev/shadowstack", O_RDWR);
-        ioctl(shadow_fd, IOCTL_SHADOW_FORK, &req);
-
+        sa_reset_after_fork();
         char done = '1';
-        if (write(sy_pipe[1], &done, 1) != 1) {
-        }
+        (void)!write(sy_pipe[1], &done, 1);
         close(sy_pipe[1]);
     } else if (pid > 0) {
         close(sy_pipe[1]);
 
         char done;
-        if (read(sy_pipe[0], &done, 1) != 1) {
-        }
+        (void)!read(sy_pipe[0], &done, 1);
         close(sy_pipe[0]);
     } else {
         close(sy_pipe[0]);
