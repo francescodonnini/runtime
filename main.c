@@ -42,7 +42,9 @@ static real_pthread_join_t real_pthread_join;
 int shadow_fd = -1;
 
 static __attribute__((constructor)) void main_thread_init(void) {
-    if (sa_init(STACK_START, STACK_END, STACK_SIZE)) {
+    // WARNING: for now I'm reserving STACK_START + STACK_SIZE for the main thread stack, this might
+    // be change in the future
+    if (sa_init(STACK_START + STACK_SIZE, STACK_END, STACK_SIZE)) {
         exit(EXIT_FAILURE);
     }
 
