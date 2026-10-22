@@ -7,6 +7,7 @@
 #include <immintrin.h>
 #include <pthread.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -127,8 +128,8 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *user_attr,
     void *prev_stack = NULL;
     size_t prev_size;
     if (!pthread_attr_getstack(&attr, &prev_stack, &prev_size) && prev_stack) {
-        fprintf(stderr, "WARNING: user has already set an existing stack %p:%lu\n", prev_stack,
-                prev_size);
+        (void)fprintf(stderr, "WARNING: user has already set an existing stack %p:%lu\n",
+                      prev_stack, prev_size);
     }
 
     if (pthread_attr_setstack(&attr, stack_base, STACK_SIZE)) {
@@ -136,8 +137,8 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *user_attr,
         goto stack_destroy;
     }
 
-    err = (int)sa_alloc_shadow_stack(stack_base, detach_state == PTHREAD_CREATE_DETACHED);
-    if (err) {
+    if (sa_alloc_shadow_stack(stack_base, detach_state == PTHREAD_CREATE_DETACHED)) {
+        err = EAGAIN;
         goto stack_destroy;
     }
 
@@ -158,7 +159,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *user_attr,
 
     sa_free_kernel_stack(stack_base);
 stack_destroy:
-    sa_free_user_stack(stack_base);
+    sa_release_user_stack(stack_base);
 attr_destroy:
     if (!user_attr) {
         pthread_attr_destroy(&attr);

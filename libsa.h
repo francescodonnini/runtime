@@ -19,8 +19,6 @@ long sa_claim(unsigned long stack_base);
 
 long sa_free_kernel_stack(void *stack_base);
 
-void sa_free_user_stack(void *stack_base);
-
 long sa_mark_detached(void *stack_base);
 
 long sa_reclaim(void *stack_base);

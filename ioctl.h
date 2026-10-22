@@ -1,7 +1,6 @@
 #ifndef SS_IOCTL_H
 #define SS_IOCTL_H
-#include <stdbool.h>
-
+#include <linux/ioctl.h>
 #include <linux/types.h>
 #define IOCTL_SHADOW_MAGIC 0xca
 
@@ -34,46 +33,46 @@ enum {
 };
 
 struct ioctl_alloc_params {
-    long error;
+    __s64 error;
     __u64 stack_base;
 };
 
 struct ioctl_detach_params {
-    long error;
+    __s64 error;
     __u64 stack_base;
 };
 
 struct ioctl_fork_params {
-    long error;
+    __s64 error;
     __u64 stack_base;
 };
 
 struct ioctl_pivot_params {
-    long error;
+    __s64 error;
     __u64 new_stack_address;
     __u64 rsp;
 };
 
 struct ioctl_prepare_params {
-    long error;
+    __s64 error;
     __u64 stack_base;
-    bool detached;
+    __u8 detached;
 };
 
 struct ioctl_reclaim_params {
-    long error;
+    __s64 error;
     __u64 stack_base;
 };
 
 struct ioctl_reclaim_dead_params {
-    long error;
+    __s64 error;
     __u64 bases;
     __u32 cap;
     __u32 count;
 };
 
 struct ioctl_unprepare_params {
-    long error;
+    __s64 error;
     __u64 stack_base;
 };
 #endif
